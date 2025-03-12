@@ -1,66 +1,88 @@
 #### PLANT MITOCHONDRIAL VOLUME STATISTICS ####
 
-# Load necessary libraries (install separately if needed)
+# Load necessary libraries
 library(tidyverse)
-library(readxl)
 library(ggpubr)
 library(ggsignif)
-library(viridisLite)
 library(FSA) # For Dunn's test
+library(conflicted)
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
 
-# Load data: You will need to specify the data file location and name
-setwd("/Users/yourname/Documents") # This is the data file location
-data <- read_excel("YourFile.xlsx") # This is the data file name
-View(data)
+# Load data: You will need to specify the data file location and name below
+setwd("/Users/yourname/Documents")  
+# Set working directory (update as needed)
+data <- read_csv("YourFile.csv")  # Load data (assumed CSV format)
 
-#### Box Plot ####
-
-my_comparisons <- list(c("control", "calcium"), c("control", "CsA"), c("calcium", "CsA"))
-
-# Chart ordered by levels on the x-axis.
+# Ensure treatment is a factor with correct levels
 data$treatment <- factor(data$treatment, levels = c("control", "calcium", "CsA"))
 
-# Create boxplot
-boxplot <- ggplot(data, aes(y = volume, x = treatment)) +
-  geom_boxplot(aes(fill = treatment, colour = treatment), 
-               alpha = 0.5, size = 0.35) +
-  theme_classic(base_size = 15) + 
-  theme(legend.position = "none") +
-  labs(x = "Treatments", y = "Mitochondrial volume (µm³)") +
-  scale_fill_brewer(palette = "Dark2") +
-  scale_colour_brewer(palette = "Dark2") +
-  scale_y_log10()
+# View dataset structure
+print(head(data))
 
-# Plot without statistics
+#### Normality Test Before Filtering ####
+shapiro_test_results <- data %>% group_by(treatment) %>% summarise(p_value = shapiro.test(volume)$p.value)
+print(shapiro_test_results)
+
+# Check if all groups have p > 0.05 (indicating normality)
+all_normal <- all(shapiro_test_results$p_value > 0.05)
+
+#### IQR Filtering ####
+Q1 <- quantile(data$volume, 0.25)
+Q3 <- quantile(data$volume, 0.75)
+IQR_value <- Q3 - Q1
+lower_limit <- Q1 - 1.5 * IQR_value
+upper_limit <- Q3 + 1.5 * IQR_value
+
+data_filtered <- data %>% dplyr::filter(volume >= lower_limit & volume <= upper_limit)
+
+# View filtered dataset
+print(head(data_filtered))
+
+#### Normality Test After Filtering ####
+shapiro_test_results_filtered <- data_filtered %>% group_by(treatment) %>% summarise(p_value = shapiro.test(volume)$p.value)
+print(shapiro_test_results_filtered)
+
+# Re-check if all groups have p > 0.05 after filtering
+all_normal_filtered <- all(shapiro_test_results_filtered$p_value > 0.05)
+
+#### Statistical Test Selection ####
+if (all_normal_filtered) {
+  print("Data is normally distributed. Running ANOVA + Tukey's test.")
+  anova_result <- aov(volume ~ treatment, data = data_filtered)
+  print(summary(anova_result))
+  
+  # Tukey's post-hoc test
+  tukey_result <- TukeyHSD(anova_result)
+  print(tukey_result)
+} else {
+  print("Data is NOT normally distributed. Running Kruskal-Wallis + Dunn's test.")
+  
+  # Kruskal-Wallis test
+  kruskal_result <- kruskal.test(volume ~ treatment, data = data_filtered)
+  print(kruskal_result)
+  
+  # Post hoc test (Dunn’s test)
+  if (kruskal_result$p.value < 0.05) {
+    dunn_result <- dunnTest(volume ~ treatment, data = data_filtered, method = "bonferroni")
+    print(dunn_result)
+  } else {
+    print("No significant differences detected, skipping post-hoc test.")
+  }
+}
+
+#### Boxplot Visualization ####
+my_comparisons <- list(c("control", "calcium"), c("control", "CsA"), c("calcium", "CsA"))
+
+boxplot <- ggplot(data_filtered, aes(y = volume, x = treatment, fill = treatment)) +
+  geom_boxplot(alpha = 0.5, color = "black", outlier.shape = NA) +
+  geom_jitter(aes(color = treatment), width = 0.2, alpha = 0.5) +
+  theme_classic(base_size = 15) +
+  labs(x = "Treatments", y = "Mitochondrial Volume (µm³)") +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_log10() +
+  stat_compare_means(comparisons = my_comparisons, method = "wilcox.test", label = "p.signif")
+
 print(boxplot)
 
-# Plot with statistics
-boxplot + stat_compare_means(comparisons = my_comparisons, method = "wilcox.test", label = "p.signif")
-
-#### Normality test for individual groups ####
-
-group1 <- data %>% filter(treatment == "control") %>% pull(volume)
-group2 <- data %>% filter(treatment == "calcium") %>% pull(volume)
-group3 <- data %>% filter(treatment == "CsA") %>% pull(volume)
-
-shapiro_test_group1 <- shapiro.test(group1)
-shapiro_test_group2 <- shapiro.test(group2)
-shapiro_test_group3 <- shapiro.test(group3)
-
-print(shapiro_test_group1)
-print(shapiro_test_group2)
-print(shapiro_test_group3)
-
-#### Kruskal-Wallis test ####
-
-kruskal_result <- kruskal.test(volume ~ treatment, data = data)
-print(kruskal_result)
-
-#### Post hoc test (Dunn’s test) ####
-
-if (kruskal_result$p.value < 0.05) {
-  dunn_result <- dunnTest(volume ~ treatment, data = data, method = "bonferroni")
-  print(dunn_result)
-} else {
-  print("No significant differences detected, skipping post-hoc test.")
-}
