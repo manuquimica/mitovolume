@@ -39,9 +39,10 @@ source("mitovolume.R")
 ```
 
 ##  Features
-- **Boxplots** for mitochondrial volume comparison.  
-- **IQR-based outlier filtering** before statistical analysis.  
-- **Shapiro-Wilk normality test** per treatment group.  
+- **Boxplots** for mitochondrial volume comparison.   
+- **Shapiro-Wilk normality test** per treatment group.
+- **IQR-based outlier filtering** for non-normal data.
+- **ANOVA** for normal data.   
 - **Kruskal-Wallis test** for overall group differences.  
 - **Dunn’s test** for multiple comparisons (if applicable).  
 
